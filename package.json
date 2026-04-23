@@ -1,0 +1,77 @@
+{
+  "name": "tomes-pass",
+  "version": "1.0.0",
+  "description": "Secure offline password manager built with Electron",
+  "main": "electron/main.js",
+  "author": {
+    "name": "Yatharth Jain",
+    "email": "jainyatharth@hotmail.com"
+  },
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --inspect",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "dist": "electron-builder --publish=never",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "electron": "^34.3.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.tomespass.app",
+    "productName": "Tomes Pass",
+    "copyright": "Copyright © 2026 Tomes Pass",
+    "directories": {
+      "output": "win",
+      "buildResources": "assets"
+    },
+    "files": [
+      "modules/**/*",
+      "assets/**/*",
+      "core/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "icon": "assets/icon.ico",
+    "publish": {
+      "provider": "github",
+      "owner": "Yatharth404",
+      "repo": "Tomes-Pass"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tomes Pass"
+    }
+  }
+}

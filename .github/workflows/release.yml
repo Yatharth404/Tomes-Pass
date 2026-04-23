@@ -1,0 +1,87 @@
+name: Create Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      # Step 1: Checkout repository
+      - uses: actions/checkout@v4
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      # Step 3: Extract version from tag
+      - name: Extract version from tag
+        id: version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          echo "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: npm install
+      # Step 5: Extract release notes from CHANGELOG.md
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $changelogFile = "CHANGELOG.md"
+          
+          # Read the entire changelog
+          $content = Get-Content $changelogFile -Raw
+          
+          # Pattern to match: ## [VERSION] - DATE and everything until the next ## [VERSION]
+          $pattern = "## \[$version\].*?\n(.*?)(?=\n## \[|$)"
+          $matches = [regex]::Match($content, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          
+          if ($matches.Success) {
+            # Extract the release notes (group 1) and clean up
+            $notes = $matches.Groups[1].Value.Trim()
+            # Remove any trailing whitespace or empty lines at the end
+            $notes = $notes -replace '\s+$', ''
+          } else {
+            $notes = "No release notes found for version $version in CHANGELOG.md"
+            Write-Warning "Could not extract release notes for version $version"
+          }
+          
+          # Output using heredoc for proper multiline handling
+          @"
+          body<<EOF
+          $notes
+          EOF
+          "@ | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      # Step 6: Build application (EXE files)
+      - name: Build application
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build:win -- --publish=never
+      # Step 7: List built files for debugging
+      - name: List built files
+        run: |
+          Write-Host "Files in win directory:"
+          Get-ChildItem -Path "win" -Recurse -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
+      # Step 8: Rename installer to remove version number
+      - name: Rename installer
+        run: |
+          $installer = Get-ChildItem -Path "win" -Recurse -Filter "Tomes Pass Setup*.exe" | Select-Object -First 1
+          if ($installer) {
+            $newPath = Join-Path $installer.DirectoryName "Tomes Pass Setup.exe"
+            Rename-Item -Path $installer.FullName -NewName "Tomes Pass Setup.exe"
+            Write-Host "Renamed: $($installer.FullName) -> $newPath"
+          } else {
+            Write-Error "No installer found matching 'Tomes Pass Setup*.exe'"
+            exit 1
+          }
+      # Step 9: Create release and upload only the installer
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: win/**/Tomes Pass Setup.exe
+          name: Version ${{ steps.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.body }}

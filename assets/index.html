@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tomes Pass - Secure Password Manager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+
+        <!-- ================================================
+             Loading Screen
+             ================================================ -->
+        <div id="loadingScreen" class="screen loading-screen">
+            <div class="loader">
+                <div class="spinner"></div>
+                <p>Initializing Tomes Pass...</p>
+            </div>
+        </div>
+
+        <!-- ================================================
+             PIN Setup Screen
+             ================================================ -->
+        <div id="pinSetupScreen" class="screen hidden">
+            <div class="card card-center">
+                <h1>Welcome to Tomes Pass</h1>
+                <p class="subtitle">Set your 4-digit PIN</p>
+                <form id="pinSetupForm" novalidate>
+                    <div class="form-group">
+                        <label for="pinInput">PIN</label>
+                        <input
+                            type="password"
+                            id="pinInput"
+                            placeholder="Enter 4-digit PIN"
+                            maxlength="4"
+                            inputmode="numeric"
+                            autocomplete="new-password"
+                            required
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="pinConfirm">Confirm PIN</label>
+                        <input
+                            type="password"
+                            id="pinConfirm"
+                            placeholder="Confirm PIN"
+                            maxlength="4"
+                            inputmode="numeric"
+                            autocomplete="new-password"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Continue</button>
+                    <div id="pinSetupError" class="error-message" role="alert"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ================================================
+             Encryption Key Setup Screen
+             ================================================ -->
+        <div id="encryptionSetupScreen" class="screen hidden">
+            <div class="card card-center">
+                <h1>Create Encryption Key</h1>
+                <p class="subtitle">This key will encrypt all your passwords</p>
+                <p class="hint">Use a strong, memorable passphrase (min 8 characters)</p>
+                <form id="encryptionSetupForm" novalidate>
+                    <div class="form-group">
+                        <label for="encryptionKeyInput">Encryption Key</label>
+                        <input
+                            type="password"
+                            id="encryptionKeyInput"
+                            placeholder="Enter encryption key"
+                            minlength="8"
+                            autocomplete="new-password"
+                            required
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="encryptionKeyConfirm">Confirm Encryption Key</label>
+                        <input
+                            type="password"
+                            id="encryptionKeyConfirm"
+                            placeholder="Confirm encryption key"
+                            minlength="8"
+                            autocomplete="new-password"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Set Up</button>
+                    <div id="encryptionSetupError" class="error-message" role="alert"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ================================================
+             Login Screen
+             ================================================ -->
+        <div id="loginScreen" class="screen hidden">
+            <div class="card card-center">
+                <h1>Tomes Pass</h1>
+                <p class="subtitle">Enter your credentials to unlock</p>
+                <form id="loginForm" novalidate>
+                    <div class="form-group">
+                        <label for="loginPin">PIN (4 digits)</label>
+                        <input
+                            type="password"
+                            id="loginPin"
+                            placeholder="Enter PIN"
+                            maxlength="4"
+                            inputmode="numeric"
+                            autocomplete="current-password"
+                            required
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="loginKey">Encryption Key</label>
+                        <div class="input-with-toggle">
+                            <input
+                                type="password"
+                                id="loginKey"
+                                placeholder="Enter encryption key"
+                                autocomplete="current-password"
+                                required
+                            >
+                            <button type="button" class="toggle-btn" id="toggleKeyVisibility" aria-label="Toggle key visibility">
+                                👁️
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Unlock</button>
+                    <div id="loginError" class="error-message" role="alert"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ================================================
+             Main App Screen
+             ================================================ -->
+        <div id="mainScreen" class="screen hidden">
+            <div class="layout">
+
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-left">
+                        <h1>Tomes Pass</h1>
+                    </div>
+                    <div class="header-right">
+                        <button id="logoutBtn" class="icon-btn" title="Lock &amp; Logout">🔒</button>
+                    </div>
+                </header>
+
+                <!-- Content -->
+                <div class="content-area">
+
+                    <!-- Sidebar -->
+                    <aside class="sidebar" aria-label="Categories">
+                        <button id="allPasswordsBtn" class="nav-item active">All Passwords</button>
+                        <button id="personalBtn"     class="nav-item">Personal</button>
+                        <button id="workBtn"         class="nav-item">Work</button>
+                        <button id="bankingBtn"      class="nav-item">Banking</button>
+                    </aside>
+
+                    <!-- Main content panels -->
+                    <main class="main-content">
+
+                        <!-- List View -->
+                        <div id="listView" class="view active">
+                            <div class="view-header">
+                                <h2 id="viewTitle">All Passwords</h2>
+                                <div class="search-box">
+                                    <input
+                                        type="search"
+                                        id="searchInput"
+                                        placeholder="Search passwords…"
+                                        class="search-input"
+                                        aria-label="Search passwords"
+                                    >
+                                </div>
+                                <button id="addPasswordBtn" class="btn btn-primary">+ Add Password</button>
+                            </div>
+                            <div id="passwordsList" class="passwords-list">
+                                <!-- Rendered by renderer.js -->
+                            </div>
+                        </div>
+
+                        <!-- Details View -->
+                        <div id="detailsView" class="view">
+                            <button class="btn btn-secondary back-btn">← Back</button>
+                            <div class="password-details-card">
+                                <div class="detail-header">
+                                    <h2 id="detailsTitle"></h2>
+                                    <div class="detail-actions">
+                                        <button id="editPasswordBtn"   class="btn btn-secondary">Edit</button>
+                                        <button id="deletePasswordBtn" class="btn btn-danger">Delete</button>
+                                    </div>
+                                </div>
+                                <div class="details-form">
+                                    <div class="form-group">
+                                        <label>Title</label>
+                                        <p id="detailsTitle2" class="detail-text"></p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Username</label>
+                                        <div class="field-with-actions">
+                                            <p id="detailsUsername" class="detail-text"></p>
+                                            <button type="button" class="copy-btn" data-copy="username">Copy</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Password</label>
+                                        <div class="field-with-actions">
+                                            <p id="detailsPassword" class="detail-text masked">••••••••</p>
+                                            <button type="button" class="copy-btn"   data-copy="password">Copy</button>
+                                            <button type="button" class="toggle-btn" id="togglePasswordBtn" aria-label="Toggle password visibility">👁️</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>URL</label>
+                                        <p id="detailsUrl" class="detail-text"></p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Category</label>
+                                        <p id="detailsCategory" class="detail-text"></p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Notes</label>
+                                        <p id="detailsNotes" class="detail-text"></p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Created</label>
+                                        <p id="detailsCreated" class="detail-text"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Edit / Add View -->
+                        <div id="editView" class="view">
+                            <button class="btn btn-secondary back-btn">← Back</button>
+                            <div class="password-form-card">
+                                <h2 id="editTitle">Add New Password</h2>
+                                <form id="passwordForm" novalidate>
+                                    <div class="form-group">
+                                        <label for="formTitle">Title <span class="required">*</span></label>
+                                        <input type="text" id="formTitle" required>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="formUsername">Username <span class="required">*</span></label>
+                                            <input type="text" id="formUsername" autocomplete="off" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="formPassword">Password <span class="required">*</span></label>
+                                            <input type="password" id="formPassword" autocomplete="new-password" required>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="formUrl">URL</label>
+                                        <input type="url" id="formUrl" placeholder="https://example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="formCategory">Category</label>
+                                        <select id="formCategory">
+                                            <option value="personal">Personal</option>
+                                            <option value="work">Work</option>
+                                            <option value="banking">Banking</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="formNotes">Notes</label>
+                                        <textarea id="formNotes" rows="3"></textarea>
+                                    </div>
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn btn-primary">Save</button>
+                                        <button type="reset"  class="btn btn-secondary">Clear</button>
+                                    </div>
+                                    <div id="editError" class="error-message" role="alert"></div>
+                                </form>
+                            </div>
+                        </div>
+
+                    </main>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /#app -->
+
+    <!-- Modal (available for future use) -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Modal</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div id="modalBody" class="modal-body"></div>
+        </div>
+    </div>
+
+
+    <!-- renderer.js is NOT a module — no type="module" -->
+    <script src="renderer.js"></script>
+</body>
+</html>
