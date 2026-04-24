@@ -13,6 +13,9 @@ const KEYS_DIR   = path.join(DATA_BASE, 'keys');
 // and acceptable wait time (~300 ms on a modern CPU).
 const SALT_ROUNDS = 12;
 
+// scrypt parameters — N must be a power of 2; r and p control memory/CPU cost.
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+
 class SecurityManager {
   constructor() {
     // In-memory copies of the key material loaded from disk.
@@ -21,6 +24,9 @@ class SecurityManager {
     this.encryptedSecretKey = null;
     this.iv                 = null;
     this.encryptedKeyHash   = null;
+    // Per-install random salt used for scrypt key derivation.
+    // Loaded from disk on startup; generated on first run.
+    this.scryptSalt         = null;
     this.initializeDirs();
   }
 
@@ -40,15 +46,24 @@ class SecurityManager {
   // Missing files are silently skipped — they simply mean the feature that
   // depends on that file hasn't been set up yet.
   async loadKeys() {
-    const pinHashPath = path.join(KEYS_DIR, 'pin.hash');
-    const keyPath     = path.join(KEYS_DIR, 'key.enc');
-    const ivPath      = path.join(KEYS_DIR, 'key.iv');
-    const keyHashPath = path.join(KEYS_DIR, 'key.hash');
+    const pinHashPath  = path.join(KEYS_DIR, 'pin.hash');
+    const keyPath      = path.join(KEYS_DIR, 'key.enc');
+    const ivPath       = path.join(KEYS_DIR, 'key.iv');
+    const keyHashPath  = path.join(KEYS_DIR, 'key.hash');
+    const saltPath     = path.join(KEYS_DIR, 'kdf.salt');
 
     if (await this.fileExists(pinHashPath))  this.pinHash            = await fs.readFile(pinHashPath, 'utf8');
     if (await this.fileExists(keyPath))      this.encryptedSecretKey = await fs.readFile(keyPath,     'utf8');
     if (await this.fileExists(ivPath))       this.iv                 = await fs.readFile(ivPath,      'utf8');
     if (await this.fileExists(keyHashPath))  this.encryptedKeyHash   = await fs.readFile(keyHashPath, 'utf8');
+
+    // Load persisted scrypt salt, or generate and store a new one on first run.
+    if (await this.fileExists(saltPath)) {
+      this.scryptSalt = await fs.readFile(saltPath, 'utf8');
+    } else {
+      this.scryptSalt = crypto.randomBytes(32).toString('hex');
+      await fs.writeFile(saltPath, this.scryptSalt, 'utf8');
+    }
   }
 
   // Returns true when a file exists and can be accessed, false otherwise.
@@ -99,11 +114,15 @@ class SecurityManager {
       const keyHash = await bcrypt.hash(encryptionKey, SALT_ROUNDS);
       this.encryptedKeyHash = keyHash;
 
-      // Derive a 32-byte AES key from the PIN using scrypt.
-      // A static salt is fine here because the PIN-derived key is only used
-      // to wrap the master key — it is never used directly to encrypt data.
+      // Derive a 32-byte AES key from the PIN using scrypt with a
+      // per-install random salt (prevents precomputed rainbow-table attacks).
+      const saltBuf = Buffer.from(this.scryptSalt, 'hex');
+      const key = await new Promise((resolve, reject) => {
+        crypto.scrypt(pin, saltBuf, 32, SCRYPT_PARAMS, (err, derived) => {
+          if (err) reject(err); else resolve(derived);
+        });
+      });
       const iv     = crypto.randomBytes(16);
-      const key    = crypto.scryptSync(pin, 'tomes-pass-salt', 32);
       const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
       let encrypted = cipher.update(encryptionKey, 'utf8', 'hex');
       encrypted += cipher.final('hex');
@@ -142,7 +161,12 @@ class SecurityManager {
       if (!pinValid) throw new Error('Invalid PIN');
       if (!this.encryptedSecretKey || !this.iv) throw new Error('Encryption key not configured');
 
-      const key      = crypto.scryptSync(pin, 'tomes-pass-salt', 32);
+      const saltBuf = Buffer.from(this.scryptSalt, 'hex');
+      const key = await new Promise((resolve, reject) => {
+        crypto.scrypt(pin, saltBuf, 32, SCRYPT_PARAMS, (err, derived) => {
+          if (err) reject(err); else resolve(derived);
+        });
+      });
       const iv       = Buffer.from(this.iv, 'hex');
       const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
       let decrypted  = decipher.update(this.encryptedSecretKey, 'hex', 'utf8');
@@ -170,9 +194,12 @@ class SecurityManager {
   // Encrypts an arbitrary JS object to a { iv, data } envelope using
   // AES-256-CBC. A fresh random IV is generated for every encryption call
   // so that identical plaintext produces different ciphertext each time.
+  // NOTE: this is a sync-compatible wrapper kept for PasswordManager;
+  // it derives the key synchronously (fast path — no PIN involved).
   encryptData(data, encryptionKey) {
     const iv     = crypto.randomBytes(16);
-    const key    = crypto.scryptSync(encryptionKey, 'tomes-pass-salt', 32);
+    const salt   = this.scryptSalt ? Buffer.from(this.scryptSalt, 'hex') : crypto.randomBytes(32);
+    const key    = crypto.scryptSync(encryptionKey, salt, 32, SCRYPT_PARAMS);
     const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
     let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -182,7 +209,8 @@ class SecurityManager {
   // Decrypts a { iv, data } envelope produced by encryptData and parses
   // the result back into a plain JS object.
   decryptData(encrypted, encryptionKey) {
-    const key      = crypto.scryptSync(encryptionKey, 'tomes-pass-salt', 32);
+    const salt     = this.scryptSalt ? Buffer.from(this.scryptSalt, 'hex') : crypto.randomBytes(32);
+    const key      = crypto.scryptSync(encryptionKey, salt, 32, SCRYPT_PARAMS);
     const iv       = Buffer.from(encrypted.iv, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
     let decrypted  = decipher.update(encrypted.data, 'hex', 'utf8');

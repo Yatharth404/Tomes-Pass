@@ -365,8 +365,11 @@ function displayPasswords(passwords) {
         </div>
     `).join('');
 
-    // Use event delegation instead of per-item listeners
-    container.addEventListener('click', handlePasswordListClick);
+    // Replace the container node to remove any previously accumulated
+    // delegated click listeners before adding a fresh one.
+    const fresh = container.cloneNode(true);
+    container.parentNode.replaceChild(fresh, container);
+    fresh.addEventListener('click', handlePasswordListClick);
 }
 
 function handlePasswordListClick(e) {
@@ -545,7 +548,12 @@ async function deletePassword(id) {
 //  Logout
 // ============================================================
 async function logout() {
-    // Wipe all sensitive state from memory
+    // Overwrite the in-memory key string with zeros before nulling it so the
+    // garbage collector doesn't leave the value sitting in freed heap memory.
+    if (appState.encryptionKey) {
+        appState.encryptionKey = '\0'.repeat(appState.encryptionKey.length);
+    }
+
     appState.encryptionKey    = null;
     appState.currentPassword  = null;
     appState.passwords        = [];
@@ -553,6 +561,10 @@ async function logout() {
     appState.currentView      = 'list';
 
     stopInactivityTimer();
+
+    // Notify the main process so it can perform any server-side cleanup.
+    await window.api.logout().catch(() => {});
+
     showView('list');
     showScreen('login');
 
@@ -576,6 +588,13 @@ function copyToClipboard(text, button) {
         const original = button.textContent;
         button.textContent = 'Copied!';
         button.classList.add('copied');
+
+        // Auto-clear the clipboard after 30 seconds so copied passwords
+        // aren't left available indefinitely.
+        setTimeout(() => {
+            navigator.clipboard.writeText('').catch(() => {});
+        }, 30_000);
+
         setTimeout(() => {
             button.textContent = original;
             button.classList.remove('copied');

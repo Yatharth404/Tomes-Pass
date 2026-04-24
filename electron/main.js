@@ -9,6 +9,14 @@ let mainWindow;
 let securityManager;
 let passwordManager;
 
+// ── PIN brute-force protection ─────────────────────────────────────────────
+// Track failed attempts per session. After MAX_ATTEMPTS failures the app
+// enforces a LOCKOUT_MS cool-down before any further attempts are accepted.
+const MAX_ATTEMPTS  = 5;
+const LOCKOUT_MS    = 30_000; // 30 seconds
+let pinFailCount    = 0;
+let pinLockedUntil  = 0;
+
 // Creates and configures the main application window.
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -26,6 +34,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
+      webSecurity: true,       // prevents renderer from loading arbitrary file:// resources
+      sandbox: true,           // OS-level sandbox for the renderer process
       preload: path.join(__dirname, 'preload.js')
     },
     icon: path.join(__dirname, '../assets/icon.ico'),
@@ -94,9 +104,31 @@ function setupIPCHandlers() {
   });
 
   // Compares the supplied PIN against the stored bcrypt hash.
+  // Enforces a session-level brute-force lockout after MAX_ATTEMPTS failures.
   ipcMain.handle('verify-pin', async (event, pin) => {
-    try { return await securityManager.verifyPin(pin); }
-    catch (error) { return { success: false, error: error.message }; }
+    try {
+      const now = Date.now();
+      if (now < pinLockedUntil) {
+        const secsLeft = Math.ceil((pinLockedUntil - now) / 1000);
+        return { success: false, error: `Too many attempts. Try again in ${secsLeft}s.` };
+      }
+
+      const result = await securityManager.verifyPin(pin);
+
+      if (result.success) {
+        pinFailCount   = 0;   // reset on success
+        pinLockedUntil = 0;
+      } else {
+        pinFailCount++;
+        if (pinFailCount >= MAX_ATTEMPTS) {
+          pinLockedUntil = Date.now() + LOCKOUT_MS;
+          pinFailCount   = 0;
+          return { success: false, error: `Too many attempts. Locked for ${LOCKOUT_MS / 1000}s.` };
+        }
+      }
+
+      return result;
+    } catch (error) { return { success: false, error: error.message }; }
   });
 
   // Uses the PIN to unwrap and return the stored encryption key so

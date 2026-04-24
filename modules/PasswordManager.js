@@ -22,7 +22,7 @@ class PasswordManager {
     await fs.mkdir(PASSWORDS_DIR, { recursive: true });
   }
 
-  // Resolves to true when a file exists and is accessible, false otherwise.
+  // Returns true when a file exists and is accessible, false otherwise.
   // Using fs.access is more reliable than checking for an ENOENT error on read.
   async fileExists(filePath) {
     try {
@@ -31,6 +31,13 @@ class PasswordManager {
     } catch {
       return false;
     }
+  }
+
+  // Validates that an ID is a well-formed UUID v4 (e.g. from uuidv4()).
+  // Rejects anything containing path separators or other traversal attempts.
+  isValidId(id) {
+    return typeof id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   }
 
   // Reads every .json file in the passwords directory, decrypts each one,
@@ -102,6 +109,7 @@ class PasswordManager {
   // Loads an existing entry, merges only the fields that were supplied
   // (leaving the rest intact), then re-encrypts and overwrites the file.
   async updatePassword(id, passwordData, encryptionKey) {
+    if (!this.isValidId(id)) throw new Error('Invalid password ID');
     await this.ensureDirs();
 
     const filePath = path.join(PASSWORDS_DIR, `${id}.json`);
@@ -134,6 +142,7 @@ class PasswordManager {
   // Permanently removes the file for the given entry ID.
   // Throws if the file doesn't exist so the caller can surface the error.
   async deletePassword(id) {
+    if (!this.isValidId(id)) throw new Error('Invalid password ID');
     const filePath = path.join(PASSWORDS_DIR, `${id}.json`);
     if (!await this.fileExists(filePath)) {
       throw new Error('Password not found');

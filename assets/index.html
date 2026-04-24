@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content-Security-Policy: restrict all resource loading to local files only.
+         'unsafe-inline' is NOT present — no inline scripts or styles are permitted.
+         This prevents XSS payloads from loading remote scripts if any HTML injection occurs. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';">
     <title>Tomes Pass - Secure Password Manager</title>
     <link rel="stylesheet" href="styles.css">
 </head>

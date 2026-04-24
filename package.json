@@ -1,6 +1,6 @@
 {
   "name": "tomes-pass",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Secure offline password manager built with Electron",
   "main": "electron/main.js",
   "author": {
