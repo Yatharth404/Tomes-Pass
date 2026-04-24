@@ -58,9 +58,19 @@ class PasswordManager {
     for (const file of files) {
       if (!file.endsWith('.json')) continue;
       try {
-        const content = await fs.readFile(path.join(PASSWORDS_DIR, file), 'utf8');
+        const filePath  = path.join(PASSWORDS_DIR, file);
+        const content   = await fs.readFile(filePath, 'utf8');
         const encrypted = JSON.parse(content);
         const decrypted = this.securityManager.decryptData(encrypted, encryptionKey);
+
+        // Transparent migration: if the file lacks the new kdfSalt field it
+        // was written by v1.0.0. Re-encrypt it with the current (secure) salt
+        // so it is migrated to the v1.0.1 format on the first login after upgrade.
+        if (!encrypted.kdfSalt) {
+          const reEncrypted = this.securityManager.encryptData(decrypted, encryptionKey);
+          await fs.writeFile(filePath, JSON.stringify(reEncrypted), 'utf8');
+        }
+
         passwords.push(decrypted);
       } catch (err) {
         // Log the bad file but keep iterating — partial vaults are better

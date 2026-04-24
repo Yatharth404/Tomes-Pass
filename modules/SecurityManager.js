@@ -191,25 +191,36 @@ class SecurityManager {
     }
   }
 
-  // Encrypts an arbitrary JS object to a { iv, data } envelope using
-  // AES-256-CBC. A fresh random IV is generated for every encryption call
-  // so that identical plaintext produces different ciphertext each time.
-  // NOTE: this is a sync-compatible wrapper kept for PasswordManager;
-  // it derives the key synchronously (fast path — no PIN involved).
+  // Encrypts an arbitrary JS object to a { iv, kdfSalt, data } envelope using
+  // AES-256-CBC. The per-install kdfSalt is embedded in the envelope so
+  // decryption never relies on an ambient global — each file is self-describing.
+  // A fresh random IV is generated per call so identical plaintext → different ciphertext.
   encryptData(data, encryptionKey) {
-    const iv     = crypto.randomBytes(16);
-    const salt   = this.scryptSalt ? Buffer.from(this.scryptSalt, 'hex') : crypto.randomBytes(32);
-    const key    = crypto.scryptSync(encryptionKey, salt, 32, SCRYPT_PARAMS);
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    const iv      = crypto.randomBytes(16);
+    const salt    = this.scryptSalt ? Buffer.from(this.scryptSalt, 'hex') : crypto.randomBytes(32);
+    const saltHex = salt.toString('hex');
+    const key     = crypto.scryptSync(encryptionKey, salt, 32, SCRYPT_PARAMS);
+    const cipher  = crypto.createCipheriv('aes-256-cbc', key, iv);
     let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return { iv: iv.toString('hex'), data: encrypted };
+    // kdfSalt is stored alongside the ciphertext so the file can always be
+    // decrypted independently of whatever salt is currently loaded in memory.
+    return { iv: iv.toString('hex'), kdfSalt: saltHex, data: encrypted };
   }
 
-  // Decrypts a { iv, data } envelope produced by encryptData and parses
-  // the result back into a plain JS object.
+  // Decrypts a { iv, data } or { iv, kdfSalt, data } envelope.
+  // — New format (kdfSalt present): uses the embedded salt — fully self-describing.
+  // — Legacy format (no kdfSalt): falls back to the old hardcoded 'tomes-pass-salt'
+  //   so passwords saved before v1.0.1 are transparently migrated on next save.
   decryptData(encrypted, encryptionKey) {
-    const salt     = this.scryptSalt ? Buffer.from(this.scryptSalt, 'hex') : crypto.randomBytes(32);
+    let salt;
+    if (encrypted.kdfSalt) {
+      // New self-describing format introduced in v1.0.1
+      salt = Buffer.from(encrypted.kdfSalt, 'hex');
+    } else {
+      // Legacy format — hardcoded salt used by v1.0.0
+      salt = Buffer.from('tomes-pass-salt', 'utf8');
+    }
     const key      = crypto.scryptSync(encryptionKey, salt, 32, SCRYPT_PARAMS);
     const iv       = Buffer.from(encrypted.iv, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);

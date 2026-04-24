@@ -6,51 +6,57 @@ All notable changes to this project will be documented in this file.
 
 ## [1.0.1] - 2026-04-25 — Security Update
 
-This release addresses **7 critical security vulnerabilities** discovered during a full source audit. No new features were added; all changes are security fixes.
+This release addresses **7 critical security vulnerabilities** discovered during a full source audit, plus a **backward-compatibility migration** to ensure passwords saved in v1.0.0 continue to load after the upgrade. No new features were added.
 
 ### 🔴 Critical Fixes
 
 #### 1. Static scrypt Salt Replaced with Per-Install Random Salt (`SecurityManager.js`)
 - **Severity:** Critical
-- **Issue:** `scryptSync` was called with the hardcoded string `'tomes-pass-salt'` as the KDF salt in every code path (PIN key wrapping, data encryption, data decryption). A hardcoded salt completely defeats the purpose of a KDF — an attacker who obtained a vault could precompute rainbow tables for all short PINs (10,000 possible 4-digit PINs) offline with trivial cost.
-- **Fix:** A cryptographically random 32-byte salt is now generated with `crypto.randomBytes(32)` on first launch and persisted to `~/.tomes-pass/keys/kdf.salt`. All key-derivation calls use this salt. The synchronous `scryptSync` calls in the PIN-wrapping paths were replaced with async `crypto.scrypt` to avoid blocking the main process.
+- **Issue:** Every key derivation call used the hardcoded string `'tomes-pass-salt'` as the KDF salt. A static salt completely defeats the KDF — an attacker with the vault files can precompute a rainbow table for all 10,000 possible 4-digit PINs offline in minutes.
+- **Fix:** A cryptographically random 32-byte salt is generated with `crypto.randomBytes(32)` on first launch and persisted to `~/.tomes-pass/keys/kdf.salt`. The salt is also embedded in every password envelope (`kdfSalt` field) so each file is self-describing and future-proof. Legacy files (no `kdfSalt`) transparently fall back to the old static salt for decryption and are re-encrypted to the new format on first login.
 
 #### 2. No PIN Brute-Force Protection (`electron/main.js`)
 - **Severity:** Critical
-- **Issue:** The `verify-pin` IPC handler had zero rate limiting. An attacker with local access could iterate all 10,000 possible 4-digit PINs in seconds.
-- **Fix:** A session-level counter tracks consecutive failures. After 5 failed attempts the handler enforces a 30-second lockout and returns an error with the remaining wait time. The counter resets on a successful verification.
+- **Issue:** The `verify-pin` IPC handler had no attempt counter or delay. All 10,000 PINs could be tried in a tight loop in under a second.
+- **Fix:** Session-level counter; 5 failed attempts trigger a 30-second lockout returned as a user-visible error. Counter resets on success.
 
 #### 3. Missing UUID Validation — Path Traversal (`modules/PasswordManager.js`)
 - **Severity:** Critical
-- **Issue:** `updatePassword(id, ...)` and `deletePassword(id)` used the caller-supplied `id` directly in `path.join(PASSWORDS_DIR, \`${id}.json\`)` without validation. A malicious IPC call with `id = "../../keys/pin"` would overwrite or delete critical key files.
-- **Fix:** A new `isValidId(id)` method validates the ID against a strict UUID v4 regex before any path construction. Both methods throw immediately if the ID fails validation.
+- **Issue:** `updatePassword(id)` and `deletePassword(id)` used the caller-supplied ID directly in `path.join(PASSWORDS_DIR, id + '.json')`. A crafted IPC call with `id = "../../keys/pin"` would delete the PIN hash, bypassing authentication entirely.
+- **Fix:** New `isValidId(id)` method validates against a strict UUID v4 regex before any path construction. Both methods throw immediately on invalid input.
 
 #### 4. Missing `webSecurity` and `sandbox` in BrowserWindow (`electron/main.js`)
 - **Severity:** High
-- **Issue:** `webSecurity` was not explicitly set and `sandbox` was absent from `webPreferences`. This leaves the renderer able to load arbitrary `file://` URIs and removes OS-level sandbox isolation.
-- **Fix:** `webSecurity: true` and `sandbox: true` are now explicitly declared in `webPreferences`.
+- **Issue:** Neither `webSecurity: true` nor `sandbox: true` was set in `webPreferences`.
+- **Fix:** Both are now explicitly declared.
 
 #### 5. Missing Content-Security-Policy (`assets/index.html`)
 - **Severity:** High
-- **Issue:** No CSP was present. If any HTML injection occurred (e.g., via a maliciously crafted password title), an injected `<script>` tag would execute without restriction.
-- **Fix:** A strict CSP meta tag was added: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';`. This blocks all inline scripts and all external resource loads.
+- **Issue:** No CSP was present. An XSS via a crafted password title could execute arbitrary JS.
+- **Fix:** Strict CSP meta tag: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';`
 
 #### 6. Clipboard Not Cleared After Password Copy (`assets/renderer.js`)
 - **Severity:** High
-- **Issue:** Copied passwords remained in the system clipboard indefinitely, accessible to any application with clipboard access.
-- **Fix:** A 30-second `setTimeout` clears the clipboard automatically after every copy operation.
+- **Issue:** Copied passwords remained in the system clipboard indefinitely.
+- **Fix:** A 30-second `setTimeout` auto-clears the clipboard after every copy.
 
 #### 7. Accumulating Event Listeners on Password List Re-render (`assets/renderer.js`)
 - **Severity:** Medium
-- **Issue:** `displayPasswords()` added a new `click` listener to the container every time it ran without removing the previous one. After many renders, each click fired the handler hundreds of times, enabling multi-delete race conditions.
-- **Fix:** The container is replaced with a `cloneNode(true)` (stripping all listeners) before a single fresh delegated listener is attached.
+- **Issue:** `displayPasswords()` stacked a new `click` listener on the container every call. After many renders each click fired the handler dozens of times, enabling multi-delete race conditions.
+- **Fix:** Container is replaced with a `cloneNode(true)` (stripping all listeners) before attaching one fresh delegated listener.
 
 ### Additional Fix
 
 #### 8. Encryption Key Not Zeroed Before Nulling on Logout (`assets/renderer.js`)
 - **Severity:** Medium
-- **Issue:** `logout()` set `appState.encryptionKey = null` directly. The original string could remain readable in a V8 heap dump until GC ran.
-- **Fix:** The key string is now overwritten with null bytes before being nulled.
+- **Issue:** `logout()` nulled `appState.encryptionKey` directly. The string value could remain readable in a V8 heap dump until GC ran.
+- **Fix:** Key string is overwritten with null bytes before being nulled.
+
+### 🔄 Migration
+
+#### Transparent v1.0.0 → v1.0.1 Password Migration
+- **Issue:** Passwords saved by v1.0.0 were encrypted with the old static salt and lacked the `kdfSalt` envelope field, making them unreadable by v1.0.1's new KDF path.
+- **Fix:** `decryptData` detects the absence of `kdfSalt` and falls back to the legacy static salt for decryption. `getAllPasswords` then immediately re-encrypts any legacy file to the new self-describing format. Migration is silent and automatic on the first login after upgrading.
 
 ---
 
